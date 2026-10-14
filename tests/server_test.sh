@@ -50,6 +50,10 @@ check 'strongSwan is running' sudo systemctl is-active --quiet strongswan-starte
 check 'ikev2-vpn connection is loaded' grep -q 'ikev2-vpn:.*IKEv2' <(sudo ipsec statusall)
 check 'server certificate is issued for the server IP' \
     grep -q "IP Address:$SERVER_IP" <(sudo openssl x509 -in /etc/ipsec.d/certs/server-cert.pem -noout -text)
+check 'CA private key is not installed in /etc/ipsec.d' sudo test ! -e /etc/ipsec.d/private/ca-key.pem
+check 'installed server key is owner-only' test "$(sudo stat -c %a /etc/ipsec.d/private/server-key.pem)" = 600
+check 'generated private keys are owner-only' \
+    test "$(stat -c %a ~/pki/private/ca-key.pem ~/pki/private/server-key.pem | sort -u)" = 600
 check 'VPN user is in ipsec.secrets' sudo grep -q "^$VPN_USER : EAP " /etc/ipsec.secrets
 check 'backups hold the original files, even after backing up again' test "$backup_sums" = "$original_sums"
 check 'ufw is active' grep -q '^Status: active' <(sudo ufw status)

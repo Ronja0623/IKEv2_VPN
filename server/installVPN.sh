@@ -19,6 +19,8 @@ sudo apt update -y
 sudo apt install strongswan strongswan-pki libcharon-extra-plugins \
     libcharon-extauth-plugins libstrongswan-extra-plugins libtss2-tcti-tabrmd0 -y
 
+# keys and other files created from here on are readable by their owner only
+umask 077
 mkdir -p ~/pki/{cacerts,certs,private}
 chmod 700 ~/pki
 
@@ -37,7 +39,10 @@ pki --pub --in ~/pki/private/server-key.pem --type rsa \
         --flag serverAuth --flag ikeIntermediate --outform pem \
     >  ~/pki/certs/server-cert.pem
 
-sudo cp -r ~/pki/* /etc/ipsec.d/
+# strongSwan only needs the CA cert and the server cert/key; the CA private key stays out of /etc/ipsec.d
+sudo cp ~/pki/cacerts/ca-cert.pem /etc/ipsec.d/cacerts/
+sudo cp ~/pki/certs/server-cert.pem /etc/ipsec.d/certs/
+sudo cp ~/pki/private/server-key.pem /etc/ipsec.d/private/
 
 # Configure /etc/ipsec.conf for StrongSwan
 IPSEC_CONF=/etc/ipsec.conf
@@ -138,4 +143,7 @@ sudo ufw disable
 echo 'y' | sudo ufw enable
 
 mkdir -p CA
-cp /etc/ipsec.d/cacerts/ca-cert.pem CA/ca-cert.pem
+cp ~/pki/cacerts/ca-cert.pem CA/ca-cert.pem
+
+echo "The CA private key is in ~/pki/private/ca-key.pem: move it off this server and keep it offline."
+echo "It can sign certificates your clients trust, and is only needed to issue a new server certificate."
