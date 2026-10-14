@@ -85,6 +85,8 @@ addVPNUser $IPSEC_SECRETS
 
 # Configure Firewall
 sudo ufw allow 500,4500/udp
+# keep the current SSH port open so enabling ufw doesn't lock us out
+sudo ufw allow $(echo $SSH_CONNECTION | awk '{print $4}')/tcp
 
 ROUTE_RULES=/etc/ufw/before.rules
 backup $ROUTE_RULES
