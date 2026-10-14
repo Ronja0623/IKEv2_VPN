@@ -1,0 +1,69 @@
+name: CI
+
+on:
+  push:
+    branches: [master]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  shellcheck:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v5
+      - name: ShellCheck
+        run: |
+          docker run --rm -v "$PWD:/mnt:ro" -w /mnt/server koalaman/shellcheck:v0.10.0 \
+            -x -S warning installVPN.sh addUser.sh utils/functions ../tests/*.sh
+
+  psscriptanalyzer:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v5
+      - name: PSScriptAnalyzer
+        shell: pwsh
+        run: |
+          Set-PSRepository PSGallery -InstallationPolicy Trusted
+          Install-Module PSScriptAnalyzer -RequiredVersion 1.22.0 -Scope CurrentUser -Force
+          $results = Invoke-ScriptAnalyzer -Path client -Recurse -Severity Warning,Error
+          $results | Format-Table -AutoSize RuleName, Severity, ScriptName, Line, Message
+          if ($results) { exit 1 }
+
+  e2e:
+    name: e2e (${{ matrix.os }})
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-22.04, ubuntu-24.04]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 20
+    env:
+      # Throwaway credentials, only valid on this disposable runner.
+      VPN_USER: ci-user
+      VPN_PASS: ci-Passw0rd-only-for-tests
+    steps:
+      - uses: actions/checkout@v5
+
+      # The client runs in a Docker container, so the server is reached at the docker0 address.
+      - name: Find server IP
+        run: echo "SERVER_IP=$(ip -4 -o addr show docker0 | awk '{split($4, a, "/"); print a[1]}')" >> "$GITHUB_ENV"
+
+      - name: Install VPN server and check its config
+        run: bash tests/server_test.sh "$SERVER_IP" "$VPN_USER" "$VPN_PASS"
+
+      - name: Connect a client through the VPN
+        run: |
+          docker run --rm --privileged \
+            -v "$PWD/tests:/tests:ro" -v "$PWD/server/CA:/ca:ro" \
+            ubuntu:24.04 bash /tests/client_test.sh "$SERVER_IP" "$VPN_USER" "$VPN_PASS" /ca/ca-cert.pem
+
+      - name: Dump server state
+        if: failure()
+        run: |
+          sudo ipsec statusall || true
+          sudo journalctl -u strongswan-starter --no-pager -n 200 || true
+          sudo ufw status verbose || true
+          sudo iptables-save || true
