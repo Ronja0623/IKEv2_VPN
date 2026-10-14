@@ -15,15 +15,19 @@ addVPNUser() {
         read -r -p 'User name: ' new_user || return 1
     done
 
-    # the password is written inside double quotes, so it can't contain one
     read -r -s -p 'User password: ' new_passwd || return 1
-    while [[ $new_passwd == *'"'* ]]; do
-        echo -e '\nPassword must not contain a double quote (")!'
-        read -r -s -p 'User password: ' new_passwd || return 1
-    done
     [[ $new_passwd == '' ]] && new_passwd=$(openssl rand -base64 32 | head -c 32) && echo -e "\n-----\nYour password is $new_passwd"
-    echo "$new_user : EAP \"$new_passwd\"" | sudo tee -a $ipsec_secrets >/dev/null
+
+    # store only the NT hash EAP-MSCHAPv2 needs, not the password itself
+    nt_hash=$(ntHash "$new_passwd")
+    [[ $nt_hash =~ ^[0-9a-f]{32}$ ]] || { echo 'Could not compute the password hash!'; return 1; }
+    echo "$new_user : NTLM 0x$nt_hash" | sudo tee -a $ipsec_secrets >/dev/null
     sudo systemctl restart strongswan-starter
+}
+
+# NT hash of a password: MD4 of its UTF-16LE encoding (MD4 is in OpenSSL 3's legacy provider)
+ntHash() {
+    printf '%s' "$1" | iconv -f UTF-8 -t UTF-16LE | openssl dgst -md4 -provider default -provider legacy -r | cut -d ' ' -f 1
 }
 
 backup() {

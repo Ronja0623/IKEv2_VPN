@@ -13,7 +13,7 @@ jobs:
   shellcheck:
     runs-on: ubuntu-24.04
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5.1.0
       - name: ShellCheck
         run: |
           docker run --rm -v "$PWD:/mnt:ro" -w /mnt koalaman/shellcheck:v0.10.0 \
@@ -22,7 +22,7 @@ jobs:
   psscriptanalyzer:
     runs-on: ubuntu-24.04
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5.1.0
       - name: PSScriptAnalyzer
         shell: pwsh
         run: |
@@ -45,7 +45,7 @@ jobs:
       VPN_USER: ci-user
       VPN_PASS: ci-Passw0rd-only-for-tests
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5.1.0
 
       # The client runs in a Docker container, so the server is reached at the docker0 address.
       - name: Find server IP
