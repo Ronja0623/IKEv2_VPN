@@ -6,6 +6,10 @@ set -eo pipefail
  
 source utils/functions
 
+# private directory for intermediate files, removed when the script exits
+TMP_DIR=$(mktemp -d)
+trap 'rm -rf "$TMP_DIR"' EXIT
+
 # server IP
 # Assume:
 #     Server with public IP
@@ -47,7 +51,7 @@ sudo cp ~/pki/private/server-key.pem /etc/ipsec.d/private/
 # Configure /etc/ipsec.conf for StrongSwan
 IPSEC_CONF=/etc/ipsec.conf
 backup $IPSEC_CONF
-cat > /tmp/ipsec.conf <<EOF
+cat > "$TMP_DIR/ipsec.conf" <<EOF
 config setup
     charondebug="ike 1, knl 1, cfg 0"
     uniqueids=no
@@ -78,9 +82,9 @@ conn ikev2-vpn
     ike=chacha20poly1305-sha512-curve25519-prfsha512,aes256gcm16-sha384-prfsha384-ecp384,aes256-sha256-modp2048!
     esp=chacha20poly1305-sha512,aes256gcm16-ecp384,aes256-sha256!
 EOF
-sed -i "s/leftid=@server_domain_or_IP/leftid=$SERVER_IP/g" /tmp/ipsec.conf
-# sed -i "s#leftcert=server-cert.pem#leftcert=/etc/ipsec.d/certs/server-cert.pem#g" /tmp/ipsec.conf
-sudo cp /tmp/ipsec.conf $IPSEC_CONF
+sed -i "s/leftid=@server_domain_or_IP/leftid=$SERVER_IP/g" "$TMP_DIR/ipsec.conf"
+# sed -i "s#leftcert=server-cert.pem#leftcert=/etc/ipsec.d/certs/server-cert.pem#g" "$TMP_DIR/ipsec.conf"
+sudo cp "$TMP_DIR/ipsec.conf" $IPSEC_CONF
 
 # Configure /etc/ipsec.secrets for StrongSwan
 IPSEC_SECRETS=/etc/ipsec.secrets
@@ -97,14 +101,15 @@ sudo ufw allow "$(echo "$SSH_CONNECTION" | awk '{print $4}')/tcp"
 ROUTE_RULES=/etc/ufw/before.rules
 backup $ROUTE_RULES
 
-## make /etc/ufw/before.rules readable
-sudo chmod 666 $ROUTE_RULES
-pattern_line_num=$(grep -n '^\*filter' $ROUTE_RULES | cut -d : -f 1)
+## edit a private copy and write it back with sudo tee, so the file keeps its owner and 640 mode
+RULES_COPY="$TMP_DIR/before.rules"
+sudo install -m 600 -o "$(id -u)" $ROUTE_RULES "$RULES_COPY"
+pattern_line_num=$(grep -n '^\*filter' "$RULES_COPY" | cut -d : -f 1)
 
 ### section 1
-head -n $(($pattern_line_num - 1)) $ROUTE_RULES > /tmp/rule_sec1
+head -n $(($pattern_line_num - 1)) "$RULES_COPY" > "$TMP_DIR/rule_sec1"
 ### section 2
-cat > /tmp/rule_sec2 <<EOF
+cat > "$TMP_DIR/rule_sec2" <<EOF
 *nat
 -A POSTROUTING -s 10.10.10.0/24 -o eth0 -m policy --pol ipsec --dir out -j ACCEPT
 -A POSTROUTING -s 10.10.10.0/24 -o eth0 -j MASQUERADE
@@ -116,20 +121,19 @@ COMMIT
 
 EOF
 INTERFACE=$(ip route show default | cut -d ' ' -f 5)
-sed -i "s/eth0/$INTERFACE/g" /tmp/rule_sec2
+sed -i "s/eth0/$INTERFACE/g" "$TMP_DIR/rule_sec2"
 ### section 3
-grep -A 4 '^\*filter' $ROUTE_RULES > /tmp/rule_sec3
+grep -A 4 '^\*filter' "$RULES_COPY" > "$TMP_DIR/rule_sec3"
 ### section 4
-cat > /tmp/rule_sec4 <<EOF
+cat > "$TMP_DIR/rule_sec4" <<EOF
 
 -A ufw-before-forward --match policy --pol ipsec --dir in --proto esp -s 10.10.10.0/24 -j ACCEPT
 -A ufw-before-forward --match policy --pol ipsec --dir out --proto esp -d 10.10.10.0/24 -j ACCEPT
 EOF
 ### section 5
-tail -n +$(($pattern_line_num + 5)) $ROUTE_RULES > /tmp/rule_sec5
+tail -n +$(($pattern_line_num + 5)) "$RULES_COPY" > "$TMP_DIR/rule_sec5"
 
-cat /tmp/rule_sec[1-5] > $ROUTE_RULES
-sudo chmod 640 $ROUTE_RULES
+cat "$TMP_DIR"/rule_sec[1-5] | sudo tee $ROUTE_RULES >/dev/null
 ##
 
 # Configure /etc/ufw/sysctl.conf to prevent man-in-the-middle attack

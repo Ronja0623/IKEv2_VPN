@@ -15,7 +15,8 @@ cd "$(dirname "$0")/../server"
 # can't consume the user name and password piped into the installer below.
 sudo apt-get update -qq
 sudo env DEBIAN_FRONTEND=noninteractive apt-get install -y -qq ufw strongswan strongswan-pki \
-    libcharon-extra-plugins libcharon-extauth-plugins libstrongswan-extra-plugins libtss2-tcti-tabrmd0
+    libcharon-extra-plugins libcharon-extauth-plugins libstrongswan-extra-plugins libtss2-tcti-tabrmd0 \
+    inotify-tools
 
 # Files installVPN.sh backs up before changing them; remember their original content.
 BACKED_UP=(/etc/ipsec.conf /etc/ipsec.secrets /etc/ufw/before.rules /etc/ufw/sysctl.conf)
@@ -24,7 +25,18 @@ original_sums=$(sudo sha256sum "${BACKED_UP[@]}")
 # installVPN.sh reads the server IP and SSH port from SSH_CONNECTION
 # ("client_ip client_port server_ip server_port").
 export SSH_CONNECTION="192.0.2.1 50000 $SERVER_IP 22"
+
+# Log every permission change on before.rules while the installer runs: it must never chmod it
+# (it used to make it world-writable while editing it). Also note existing mktemp dirs in /tmp.
+# The log goes in a private dir: root may not open a file another user owns in sticky /tmp.
+attrib_log=$(mktemp -d)/attrib.log
+tmp_before=$(ls -d /tmp/tmp.* 2>/dev/null || true)
+sudo inotifywait -m -q -e attrib -o "$attrib_log" /etc/ufw/before.rules &
+sleep 1
+
 printf '%s\n%s\n' "$VPN_USER" "$VPN_PASS" | bash installVPN.sh
+sudo pkill -x inotifywait
+tmp_after=$(ls -d /tmp/ipsec.conf /tmp/rule_sec* /tmp/tmp.* 2>/dev/null || true)
 
 # Back up again, as a re-run of the installer would. The .bak files must keep the originals.
 # shellcheck source=../server/utils/functions
@@ -56,6 +68,9 @@ check 'generated private keys are owner-only' \
     test "$(stat -c %a ~/pki/private/ca-key.pem ~/pki/private/server-key.pem | sort -u)" = 600
 check 'VPN user is in ipsec.secrets' sudo grep -q "^$VPN_USER : EAP " /etc/ipsec.secrets
 check 'backups hold the original files, even after backing up again' test "$backup_sums" = "$original_sums"
+check 'before.rules permissions were never changed during install' test ! -s "$attrib_log"
+check 'before.rules is still root-owned with mode 640' test "$(sudo stat -c '%U %a' /etc/ufw/before.rules)" = 'root 640'
+check 'no installer temp files left in /tmp' test "$tmp_after" = "$tmp_before"
 check 'ufw is active' grep -q '^Status: active' <(sudo ufw status)
 check 'ufw allows IKE (500,4500/udp)' grep -Eq '^500,4500/udp +ALLOW' <(sudo ufw status)
 check 'ufw allows the SSH port (22/tcp)' grep -Eq '^22/tcp +ALLOW' <(sudo ufw status)
