@@ -16,8 +16,8 @@ jobs:
       - uses: actions/checkout@v5
       - name: ShellCheck
         run: |
-          docker run --rm -v "$PWD:/mnt:ro" -w /mnt/server koalaman/shellcheck:v0.10.0 \
-            -x -S warning installVPN.sh addUser.sh utils/functions ../tests/*.sh
+          docker run --rm -v "$PWD:/mnt:ro" -w /mnt koalaman/shellcheck:v0.10.0 \
+            -x -P SCRIPTDIR -S warning server/installVPN.sh server/addUser.sh server/utils/functions tests/*.sh
 
   psscriptanalyzer:
     runs-on: ubuntu-24.04
