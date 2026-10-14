@@ -20,5 +20,6 @@ addVPNUser() {
 
 backup() {
     fpath=$1
-    sudo cp $fpath{,.bak}
+    # keep the first backup: on a re-run the file has already been modified
+    [[ -e $fpath.bak ]] || sudo cp $fpath{,.bak}
 }
