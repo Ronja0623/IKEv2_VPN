@@ -46,6 +46,21 @@ for f in "${BACKED_UP[@]}"; do
 done
 backup_sums=$(sudo sha256sum "${BACKED_UP[@]/%/.bak}" | sed 's/\.bak$//')
 
+# addUser.sh must ask again for an invalid name, an existing name and a password with a
+# double quote. A name that is only part of an existing one (e.g. "ci-use") is a new name.
+NEW_USER=${VPN_USER%?}
+NEW_PASS=ci-second-Passw0rd
+printf '%s\n' 'bad name' "$VPN_USER" "$NEW_USER" 'pa"ss' "$NEW_PASS" | bash addUser.sh
+# ...and stop at the end of input instead of asking forever.
+add_user_eof=0
+printf 'bad name\n' | timeout 10 bash addUser.sh || add_user_eof=$?
+
+# addUser.sh restarts strongSwan: wait until it has loaded the connection again
+for _ in {1..30}; do
+    sudo ipsec statusall 2>/dev/null | grep -q 'ikev2-vpn:.*IKEv2' && break
+    sleep 1
+done
+
 failures=0
 check() {
     local desc=$1
@@ -67,6 +82,12 @@ check 'installed server key is owner-only' test "$(sudo stat -c %a /etc/ipsec.d/
 check 'generated private keys are owner-only' \
     test "$(stat -c %a ~/pki/private/ca-key.pem ~/pki/private/server-key.pem | sort -u)" = 600
 check 'VPN user is in ipsec.secrets' sudo grep -q "^$VPN_USER : EAP " /etc/ipsec.secrets
+check 'addUser.sh did not add an existing user again' test "$(sudo grep -c "^$VPN_USER : " /etc/ipsec.secrets)" = 1
+check 'addUser.sh added a new user whose name is part of an existing one' \
+    sudo grep -qxF "$NEW_USER : EAP \"$NEW_PASS\"" /etc/ipsec.secrets
+check 'addUser.sh wrote no invalid name or password with a quote' \
+    test "$(sudo grep -c -e 'bad name' -e 'pa"ss' /etc/ipsec.secrets)" = 0
+check 'addUser.sh stops at end of input' test "$add_user_eof" = 1
 check 'backups hold the original files, even after backing up again' test "$backup_sums" = "$original_sums"
 check 'before.rules permissions were never changed during install' test ! -s "$attrib_log"
 check 'before.rules is still root-owned with mode 640' test "$(sudo stat -c '%U %a' /etc/ufw/before.rules)" = 'root 640'
