@@ -1,4 +1,5 @@
 #!/bin/bash
+set -eo pipefail
 
 # Reference:
 # https://www.digitalocean.com/community/tutorials/how-to-set-up-an-ikev2-vpn-server-with-strongswan-on-ubuntu-22-04
@@ -10,6 +11,7 @@ source utils/functions
 #     Server with public IP
 #     Configure through SSH 
 SERVER_IP=$(echo $SSH_CONNECTION | awk '{print $3}')
+[[ -n $SERVER_IP ]] || { echo 'Cannot detect server IP: run this script directly in an SSH session (not via sudo)'; exit 1; }
 #read -p 'Server IP: ' SERVER_IP
 
 # install packages required
@@ -76,7 +78,7 @@ sudo cp /tmp/ipsec.conf $IPSEC_CONF
 
 # Configure /etc/ipsec.secrets for StrongSwan
 IPSEC_SECRETS=/etc/ipsec.secrets
-backup $IPSEC_SECRETES
+backup $IPSEC_SECRETS
 # echo ': RSA "/etc/ipsec.d/private/server-key.pem"' | sudo tee -a $IPSEC_SECRETS >/dev/null
 echo ': RSA "server-key.pem"' | sudo tee -a $IPSEC_SECRETS >/dev/null
 addVPNUser $IPSEC_SECRETS
