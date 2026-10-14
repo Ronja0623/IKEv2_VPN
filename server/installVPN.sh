@@ -86,14 +86,14 @@ addVPNUser $IPSEC_SECRETS
 # Configure Firewall
 sudo ufw allow 500,4500/udp
 # keep the current SSH port open so enabling ufw doesn't lock us out
-sudo ufw allow $(echo $SSH_CONNECTION | awk '{print $4}')/tcp
+sudo ufw allow "$(echo "$SSH_CONNECTION" | awk '{print $4}')/tcp"
 
 ROUTE_RULES=/etc/ufw/before.rules
 backup $ROUTE_RULES
 
 ## make /etc/ufw/before.rules readable
 sudo chmod 666 $ROUTE_RULES
-pattern_line_num=$(grep -n *filter $ROUTE_RULES | cut -d : -f 1)
+pattern_line_num=$(grep -n '^\*filter' $ROUTE_RULES | cut -d : -f 1)
 
 ### section 1
 head -n $(($pattern_line_num - 1)) $ROUTE_RULES > /tmp/rule_sec1
@@ -112,7 +112,7 @@ EOF
 INTERFACE=$(ip route show default | cut -d ' ' -f 5)
 sed -i "s/eth0/$INTERFACE/g" /tmp/rule_sec2
 ### section 3
-grep -A 4 *filter $ROUTE_RULES > /tmp/rule_sec3
+grep -A 4 '^\*filter' $ROUTE_RULES > /tmp/rule_sec3
 ### section 4
 cat > /tmp/rule_sec4 <<EOF
 
